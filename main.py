@@ -10,7 +10,8 @@ import time
 import numpy as np
 import numpy.linalg as la
 
-global col
+global col, Nx, Ny
+Nx, Ny = 400,640 #screen size
 col = {
         "BGCOLOR" : (100,100,100),
         "LIGHTCOL" : (255,255,255),
@@ -18,14 +19,8 @@ col = {
         "TRANSPARENT" : (0,0,0,0)
         }
 
-
-global RAY_SURF
-global GEOMETRY_SURF
-global WALLS, POLYGONS,  Nx, Ny
-WALLS = []
-Nx, Ny = 400,640
-POLYGONS = set(( (0,0), (0,Ny), (Nx,0), (Nx,Ny)  ))
 class Ray:
+    #ray objects have a position and unit direction vector, and have the "cast" method to detect collisions
     def __init__(self,pos,direction):
         self.pos = np.array(pos) #originating location
         self.direction = 10*np.array(direction)/la.norm(np.array(direction)) #pointing vector
@@ -41,15 +36,17 @@ class Ray:
 
     def cast(self):
         """
-        Req for intersection: 
+        Req for valid intersection: 
+        maths part: https://en.wikipedia.org/wiki/Line%E2%80%93line_intersection#Given_two_points_on_each_line
         0 < t < 1 #inside of wall
         0 < u #in front of ray
+        Complexity increases linearly with number of edges in scene
         """
         global WALLS
         #RAY LINE
         x1 , y1  = tuple(self.pos)
         x2, y2  = tuple(self.pos + self.direction)
-        best = float('inf')
+        best = float('inf') #pick closest collision, initial best = inf
         res = None
         for wall in WALLS:
             x3, y3 = tuple(wall.start)
@@ -78,28 +75,21 @@ class Boundary:
         global WALLS
         self.start = np.array( (ax,ay) )
         self.end = np.array( (bx,by) )
-        self.segment = self.end - self.start
         self.color = (255,0,0)
         if any(self.start != self.end):
             WALLS.append(self)
 
     def show(self):
+        #for debugging, usually redundant due to seperate draw.polygon()
         global GEOMETRY_SURF
         pygame.draw.line(GEOMETRY_SURF, self.color, self.start, self.end)
 
 def angle2pointer(rad):
+    """ convert angle to pointer vector"""
     return ( math.cos(rad), math.sin(rad) )
-
-def draw_window_boundaries():
-    global Nx, Ny
-    Boundary(0,0, Nx, 0) #top edge
-    Boundary(0,0, 0 ,Ny) #left edge
-    Boundary(0,Ny,Nx, Ny) # bottom edge
-    Boundary(Nx,0,Nx,Ny) # right edge
-    return
-
     
 def make_polygon(*coords):
+    """ make polygon from list of coords """
     global GEOMETRY_SURF, POLYGONS,col
     if len(coords) < 3:
         print("Warning: Invalid polygon passed, ignoring...")
@@ -108,54 +98,23 @@ def make_polygon(*coords):
     prev = coords[0]
     for coord in coords:
         POLYGONS |= {coord}
-        line = Boundary(prev[0],prev[1],coord[0],coord[1])
+        line = Boundary(prev[0],prev[1],coord[0],coord[1]) #add segment to WALL list
         prev = coord
     line = Boundary(prev[0], prev[1],start[0],start[1])
     #now draw poly
     pygame.draw.polygon(GEOMETRY_SURF,col["SHAPECOL"], coords)
-def main():
-    global col,Nx, Ny, RAY_SURF, GEOMETRY_SURF, WALLS, POLYGONS
-    pygame.init()
-    clock = pygame.time.Clock()
-    window = pygame.display.set_mode( (Nx,Ny) )
-    window.fill(col["BGCOLOR"])
-    GEOMETRY_SURF = pygame.Surface( (Nx,Ny), pygame.SRCALPHA )
-    GEOMETRY_SURF.fill(col["TRANSPARENT"])
-    RAY_SURF = pygame.Surface ( (Nx,Ny) , pygame.SRCALPHA)
-    RAY_SURF.fill(col["TRANSPARENT"])
-   
-    draw_window_boundaries()
-    testwall = Boundary(300,10,300,550)
-    testwall.show()
+    return
 
+def decorate_scene():
+    """ Place various polygons around screen"""
     make_polygon( (100,100),(120,140),(270,70) )
     make_polygon( (300,10), (300,550), (340,452),(380,300), (330,50))
     make_polygon( (200,450), (100,450), (100,500), (200,500) )
-    make_polygon( (130,320), (150,300), (140,280))
-    window.blits( ( (RAY_SURF, (0,0)), (GEOMETRY_SURF, (0,0)) ))
-    pygame.display.flip()
-    print(len(WALLS), " walls generated") 
-    FPS = 30
-    t0 = time.time()
-    while True:
-        #print(time.time()-t0)
-        #t0 = time.time()
-        clock.tick(FPS)
-        for event in pygame.event.get():
-            if event.type == pygame.QUIT or pygame.key.get_pressed()[27]: #detect attempted exit
-                pygame.quit()
-                sys.exit()
-        RAY_SURF.fill((0,0,0))
-        shader_vertices = cast_rays(pygame.mouse.get_pos())
-        try:
-            pygame.draw.polygon(RAY_SURF, col["LIGHTCOL"], shader_vertices)
-        except:
-            print(shader_vertices)
-            return
-        window.blits( ( (RAY_SURF, (0,0)), (GEOMETRY_SURF, (0,0)) )) 
-        pygame.display.update()
+    make_polygon( (130,320), (150,300), (140,280) )
+    return
 
 def cast_rays(pos):
+    """Cast rays all around from pos"""
     global POLYGONS
     dtheta = 0.01
     coll = []
@@ -171,9 +130,46 @@ def cast_rays(pos):
             coll.append(( angle, (int(opts[1][0]),int(opts[1][1])) ))
         if opts[2] != None:
             coll.append(( angle+dtheta, (int(opts[2][0]),int(opts[2][1])) ))
-
     shader_vertices = [x[1] for x in sorted(coll)]
     return shader_vertices
+
+def main():
+    global col,Nx, Ny, RAY_SURF, GEOMETRY_SURF, WALLS, POLYGONS
+    pygame.init()
+    clock = pygame.time.Clock()
+    window = pygame.display.set_mode( (Nx,Ny) )
+    window.fill(col["BGCOLOR"])
+    GEOMETRY_SURF = pygame.Surface( (Nx,Ny), pygame.SRCALPHA )
+    GEOMETRY_SURF.fill(col["TRANSPARENT"])
+    RAY_SURF = pygame.Surface ( (Nx,Ny) , pygame.SRCALPHA)
+    RAY_SURF.fill(col["TRANSPARENT"])
+      
+    decorate_scene()
+    
+    window.blits( ( (RAY_SURF, (0,0)), (GEOMETRY_SURF, (0,0)) ))
+    pygame.display.flip()
+    print(len(WALLS), " walls generated") 
+    FPS = 30
+    t0 = time.time()
+    while True:
+        #print(time.time()-t0)
+        #t0 = time.time()
+        clock.tick(FPS)
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT or pygame.key.get_pressed()[27]: #detect attempted exit
+                pygame.quit()
+                sys.exit()
+        RAY_SURF.fill((0,0,0))
+        shader_vertices = cast_rays(pygame.mouse.get_pos())
+        pygame.draw.polygon(RAY_SURF, col["LIGHTCOL"], shader_vertices)
+        window.blits( ( (RAY_SURF, (0,0)), (GEOMETRY_SURF, (0,0)) ) ) 
+        pygame.display.update()
+
+global WALLS, POLYGONS, RAY_SURF, GEOMETRY_SURF
+#WALLS is a list of Boundary objects in the scene. Initialises with the 4 sides of the screen
+WALLS = [Boundary(0,0, Nx, 0), Boundary(0,0, 0 ,Ny), Boundary(0,Ny,Nx, Ny), Boundary(Nx,0,Nx,Ny)]
+#POLYGONS is a set all geometry vertexes on the map, that will later become a polygon to flood-fill
+POLYGONS = set(( (0,0), (0,Ny), (Nx,0), (Nx,Ny)  )) #initialise with the 4 corners of the screen
 
 if __name__ == "__main__":
     main()
